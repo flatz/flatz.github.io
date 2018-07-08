@@ -341,7 +341,7 @@ Good luck.
 
 ## Bonus
 
-Here's a bonus code that could be used to initiate **PKG** file extra copying/installation using **BGFT**. You need to create and copy file to temporary directory and then initiate ask **BGFT** to do the rest for you. It will preallocate a new file inside `/user/app/<title id>` and copy your file there. But the original file is left intact so you need to delete it or optionally use **BGFT_TASK_OPTION_DELETE_AFTER_UPLOAD** option (haven't tested).
+Here's a bonus code that could be used to initiate **PKG** file extra copying/installation using **BGFT**. You need to create and copy file to temporary directory and then ask **BGFT** to do the rest for you. It will preallocate a new file inside `/user/app/<title id>` and copy your file there. But the original file is left intact so you need to delete it or optionally use **BGFT_TASK_OPTION_DELETE_AFTER_UPLOAD** option (haven't tested).
 
 Use the code below instead of call to **sceAppInstUtilAppInstallPkg()** to make PKG installation using BGFT (requires 2x free space due to extra pkg file copy).
 
@@ -477,8 +477,9 @@ if (ret) {
 	goto err;
 }
 
+#if 0
 // TODO: there is sceBgftDownloadGetProgress() that may be used to get progress information but I didn't have a free
-// time to figure out how to use it properly, for me it always returns zeros in size fields so I cann't get proper percent.
+// time to figure out how to use it properly, for me it always returns zeros in size fields so I can't get proper percent.
 struct bgft_task_progress_internal progress;
 memset(&progress, 0, sizeof(progress));
 ret = sceBgftDownloadGetProgress(task_id, &progress);
@@ -486,4 +487,5 @@ if (ret) {
 	dprintf("sceBgftDownloadGetProgress() failed: %d (errno: %d)", ret, errno);
 	goto err;
 }
+#endif
 ```
