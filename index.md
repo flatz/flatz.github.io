@@ -221,7 +221,7 @@ int gsched_set_slot_prio(int fd, unsigned int slot, unsigned int prio, unsigned 
 	}
 
 	dprintf("doing gsched_is_set_prio()...\n");
-	ret = ioctl(fd, cmd, &args);
+	ret = ioctl(fd, 0xC0209406, &args);
 	if (ret) {
 		dprintf("ioctl(%d, 0x%08X) failed: %d (errno: %d)\n", fd, cmd, ret, errno);
 		goto err;
@@ -238,10 +238,6 @@ err:
 		close(fd);
 
 	return ret;
-}
-
-int gsched_set_slot_prio(int fd, unsigned int slot, unsigned int prio, unsigned int* status) {
-	return gsched_is_ctl(0xC0209406, (void*)(uintptr_t)fd, slot, prio, status);
 }
 ```
 
