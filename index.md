@@ -338,3 +338,152 @@ Finally, you need to call `sceAppInstUtil*` functions as I've described in the b
 I've tested this code with some game package and it worked like a charm but haven't tried it on patch packages but they should work too I think. Maybe I'll try them a bit later, just need to relax now after a few days of reversing/brainstorming. :)
 
 Good luck.
+
+## Bonus
+
+Here's a bonus code that could be used to initiate **PKG** file extra copying/installation using **BGFT**. You need to create and copy file to temporary directory and then initiate ask **BGFT** to do the rest for you. It will preallocate a new file inside `/user/app/<title id>` and copy your file there. But the original file is left intact so you need to delete it or optionally use **BGFT_TASK_OPTION_DELETE_AFTER_UPLOAD** option (haven't tested).
+
+Use the code below instead of call to **sceAppInstUtilAppInstallPkg()** to make PKG installation using BGFT (requires 2x free space due to extra pkg file copy).
+
+```cpp
+enum bgft_task_option_t {
+	BGFT_TASK_OPTION_NONE = 0x0,
+	BGFT_TASK_OPTION_DELETE_AFTER_UPLOAD = 0x1,
+	BGFT_TASK_OPTION_INVISIBLE = 0x2,
+	BGFT_TASK_OPTION_ENABLE_PLAYGO = 0x4,
+	BGFT_TASK_OPTION_FORCE_UPDATE = 0x8,
+	BGFT_TASK_OPTION_REMOTE = 0x10,
+	BGFT_TASK_OPTION_COPY_CRASH_REPORT_FILES = 0x20,
+	BGFT_TASK_OPTION_DISABLE_INSERT_POPUP = 0x40,
+	BGFT_TASK_OPTION_DISABLE_CDN_QUERY_PARAM = 0x10000,
+};
+
+struct bgft_download_param {
+	int user_id;
+	int entitlement_type;
+	const char* id;
+	const char* content_url;
+	const char* content_ex_url;
+	const char* content_name;
+	const char* icon_path;
+	const char* sku_id;
+	enum task_option_t option;
+	const char* playgo_scenario_id;
+	const char* release_date;
+	const char* package_type;
+	const char* package_sub_type;
+	unsigned long package_size;
+};
+
+struct bgft_download_param_ex {
+	struct bgft_download_param param;
+	unsigned int slot;
+};
+
+struct bgft_task_progress_internal {
+	unsigned int bits;
+	int error_result;
+	unsigned long length;
+	unsigned long transferred;
+	unsigned long length_total;
+	unsigned long transferred_total;
+	unsigned int num_index;
+	unsigned int num_total;
+	unsigned int rest_sec;
+	unsigned int rest_sec_total;
+	int preparing_percent;
+	int local_copy_percent;
+};
+
+#define BGFT_INVALID_TASK_ID (-1)
+
+struct bgft_init_params {
+	void* mem;
+	unsigned long size;
+};
+
+// ...
+
+int (*sceBgftInitialize)(struct bgft_init_params* params);
+int (*sceBgftDownloadRegisterTaskByStorageEx)(struct bgft_download_param_ex* params, int* task_id);
+int (*sceBgftDownloadStartTask)(int task_id);
+int (*sceBgftDownloadGetProgress)(int task_id, struct bgft_task_progress_internal* progress);
+
+// ...
+
+// load & start bgft module
+module_id_t bgft_mid = -1;
+ret = load_module("/system/common/lib/libSceBgft.sprx", &bgft_mid);
+if (ret) {
+	dprintf("unable to load module: libSceBgft.sprx");
+	goto err;
+}
+ret = start_module(bgft_mid, NULL, 0);
+if (ret) {
+	dprintf("unable to start module: libSceBgft.sprx", bgft_mid);
+	goto err;
+}
+
+// resolve its functions
+RESOLVE_NID(bgft_mid, sceBgftInitialize, "libSceBgft", "BZ0olR8Da0g");
+RESOLVE_NID(bgft_mid, sceBgftDownloadRegisterTaskByStorageEx, "libSceBgft", "nd+0DEOC68A");
+RESOLVE_NID(bgft_mid, sceBgftDownloadStartTask, "libSceBgft", "HRDHLMA9Y7s");
+RESOLVE_NID(bgft_mid, sceBgftDownloadGetProgress, "libSceBgft", "5txx+w0HYOs");
+
+// initialize
+struct bgft_init_params init_params;
+memset(&init_params, 0, sizeof(init_params));
+{
+	init_params.size = 0x100000;
+	init_params.mem = malloc(init_params.size);
+	if (!init_params.mem) {
+		dprintf("no memory");
+		goto err;
+	}
+	memset(init_params.mem, 0, init_params.size);
+}
+
+ret = sceBgftInitialize(&init_params);
+if (ret) {
+	dprintf("sceBgftInitialize failed: %d (errno: %d)", ret, errno);
+	goto err;
+}
+
+struct bgft_download_param_ex download_params;
+memset(&download_params, 0, sizeof(download_params));
+{
+	download_params.param.entitlement_type = 5;
+	download_params.param.id = "";
+	download_params.param.content_url = pkg_path;
+	download_params.param.content_name = extract_file_name(pkg_path);
+	download_params.param.icon_path = "";
+	download_params.param.playgo_scenario_id = "0";
+	download_params.param.option = BGFT_TASK_OPTION_DISABLE_CDN_QUERY_PARAM;
+	download_params.slot = slot;
+}
+
+int task_id = BGFT_INVALID_TASK_ID;
+ret = sceBgftDownloadRegisterTaskByStorageEx(&download_params, &task_id);
+if (ret) {
+	dprintf("sceBgftDownloadRegisterTaskByStorageEx failed: %d (errno: %d)", ret, errno);
+	goto err;
+}
+dprintf("Task ID: 0x%08X", task_id);
+
+// XXX: it seems task started by itself but let's doing it anyway...
+ret = sceBgftDownloadStartTask(task_id);
+if (ret) {
+	dprintf("sceBgftDownloadStartTask failed: %d (errno: %d)", ret, errno);
+	goto err;
+}
+
+// TODO: there is sceBgftDownloadGetProgress() that may be used to get progress information but I didn't have a free
+// time to figure out how to use it properly, for me it always returns zeros in size fields so I cann't get proper percent.
+struct bgft_task_progress_internal progress;
+memset(&progress, 0, sizeof(progress));
+ret = sceBgftDownloadGetProgress(task_id, &progress);
+if (ret) {
+	dprintf("sceBgftDownloadGetProgress() failed: %d (errno: %d)", ret, errno);
+	goto err;
+}
+```
