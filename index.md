@@ -199,7 +199,7 @@ int gsched_set_slot_prio(int fd, unsigned int slot, unsigned int prio, unsigned 
 	int cmd = 0xC0209406;
 	int ret;
 
-	if (slot == SLOT_CURRENT && slot > MAX_SLOTS) {
+	if (slot == SLOT_CURRENT || slot > MAX_SLOTS) {
 		dprintf("invalid slot: %u\n", slot);
 		ret = EINVAL;
 		goto err;
@@ -280,7 +280,7 @@ sceBgftNotifyGameWillStart() ret = 80990019
 ```
 My assumption is that **ShellCore** tries to notify **BGFT** (*Background File Transfer Service*) that we're starting an application that **BGFT** copied before. This is okay for PKG installer because it doesn't use **sceAppInstUtilAppInstallPkg** by itself but starts task with a help of **BGFT** and the latter thing does all copy/premote/install operations. When you install a package file from the PSN (or disc), it gets downloaded/copied to temporary path: `/user/bgft/task/<task id>/app.pkg`. But we're already having our file on internal *HDD*, so we don't need an extra copy (this will require 2x space on *HDD*), this means we can't use **BGFT** for our task if we don't want to waste too much free space (if you're okay with it then it could be done through **BGFT** but with a different method, I've reversed it too but it's not a subject of this write-up). And if we don't use **BGFT** task then it will be a problem for **ShellCore** which will thrown an error because there is no BGFT task for our package. We need to patch **ShellCore** code to ignore this error.
 
-5.01 slide offset for ShellCore.elf: 0x3EA982
+5.01 slide offset for ShellCore.elf: 0x3EA9A2
 It's a call to **sceBgftNotifyGameWillStart**, you could find it easily by string reference that I've posted above. Just patch it with `xor eax, eax` and pad the rest opcode bytes with `nop`. It will introduce one more error related to **BGFT** task that gets printed but just ignore it (or try to find a better or one more patch).
 
 ## The actual method
